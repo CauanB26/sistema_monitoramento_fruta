@@ -1,0 +1,12 @@
+.env
+__pycache__/
+*.pyc
+*.png
+
+.venv/*
+dados.json
+amadurecimento_frutas/arduino_secrets.h
+
+*tex
+settings*
+

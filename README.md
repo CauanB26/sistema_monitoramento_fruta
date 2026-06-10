@@ -1,110 +1,227 @@
-# Fruit Ripening Monitor — Sistema Embarcado de Monitoramento de Amadurecimento de Frutas
+# Fruit Ripening Monitor
 
-**Autores:** Bernardo Cicchelli, Cauan Magalhães Baptista  
-**Disciplina:** IBM3119 — Projeto de Sistemas Embarcados  
-**Instituição:** IBMEC  
+Sistema embarcado e IoT de baixo custo para monitorar condições ambientais associadas ao amadurecimento de frutas em um recipiente fechado.
+
+**Autores:** Bernardo Cicchelli, Cauan Magalhaes Baptista  
+**Disciplina:** IBM3119 - Projeto de Sistemas Embarcados  
+**Instituicao:** IBMEC  
 **Ano:** 2026
 
----
+## Objetivo
 
-## Descrição do Projeto
+O projeto mede, registra e visualiza variaveis relacionadas ao armazenamento e amadurecimento de frutas:
 
-Este projeto implementa um sistema embarcado de baixo custo para monitoramento em tempo real das condições ambientais que influenciam o processo de amadurecimento de frutas. O sistema realiza leituras contínuas de temperatura ambiente, umidade relativa do ar, temperatura superficial da fruta e intensidade luminosa, exibindo os dados em um display LCD e emitindo alertas sonoros sempre que algum parâmetro ultrapassa os limiares de segurança definidos.
+- temperatura ambiente;
+- umidade relativa;
+- luminosidade;
+- sinal bruto do sensor MQ-3, usado como indicador relativo de compostos volateis/alcool;
+- sinal bruto do sensor MQ-135, usado como indicador relativo de gases/VOCs.
 
-O objetivo é fornecer ao produtor ou ao consumidor um indicativo simples e confiável sobre se as condições de armazenamento das frutas estão adequadas, prevenindo perdas por deterioração precoce ou danos por temperatura/umidade inadequadas.
-
----
+As leituras sao enviadas para o ThingSpeak e analisadas em Python por meio de graficos interativos. O foco do prototipo e acompanhar tendencias ao longo do tempo, identificar perturbacoes no ambiente fechado e comparar o comportamento dos sensores durante o experimento.
 
 ## Hardware Utilizado
 
-| Componente | Descrição | Conexão |
+| Componente | Funcao | Conexao |
 |---|---|---|
-| **Arduino Mega 2560** | Microcontrolador principal (ATmega2560, 16 MHz, 5 V) | — |
-| **DHT11** | Sensor digital de temperatura e umidade ambiente | Pino digital 2 |
-| **NTC 10kΩ (β = 3950)** | Termistor NTC para medição da temperatura superficial da fruta | Pino analógico A1 |
-| **LDR** | Fotorresistor para medição da intensidade luminosa | Pino analógico A0 |
-| **LCD 16×2 (HD44780)** | Display de cristal líquido para exibição dos dados | Pinos 12, 11, 5, 4, 3, 6 |
-| **Buzzer passivo** | Alerta sonoro em caso de condição inadequada | Pino digital 8 |
-| **Resistor 10 kΩ** | Divisor de tensão para o NTC | A1 (em série com NTC) |
-| **Potenciômetro** | Controle do brilho do LCD (backlight via PWM no pino 9) | Pino 9 (PWM) |
+| ESP32 | Microcontrolador com Wi-Fi integrado | USB / 5 V |
+| DHT11 | Temperatura e umidade ambiente | GPIO 4 |
+| LDR | Luminosidade ambiente | GPIO 36 |
+| MQ-3 | Indicador relativo de alcool/VOCs | GPIO 39 |
+| MQ-135 | Indicador relativo de gases/VOCs | GPIO 35 |
+| Recipiente transparente | Ambiente de armazenamento da fruta | - |
 
-### Diagrama de ligação (descrição textual)
-
-```
-DHT11  → D2 (sinal), 5V, GND
-NTC    → A1 (ponto médio do divisor: NTC entre A1 e GND; Resistor 10kΩ entre 5V e A1)
-LDR    → A0 (ponto médio do divisor: LDR entre 5V e A0; Resistor 10kΩ entre A0 e GND)
-LCD    → RS=12, E=11, D4=5, D5=4, D6=3, D7=6; V0 (contraste) via potenciômetro
-Buzzer → D8 (positivo), GND
-PWM    → D9 (backlight LCD)
-```
-
----
+> Observacao: os sensores MQ sao lidos por `analogRead()`. Sem calibracao com curva do sensor, resistencia de carga, temperatura/umidade de compensacao e gas de referencia, os valores devem ser tratados como **ADC bruto/indicador relativo**, nao como ppm absoluto.
 
 ## Software Utilizado
 
-| Item | Versão / Detalhes |
-|---|---|
-| **Arduino IDE** | 2.x |
-| **Linguagem** | C++ (Arduino framework) |
-| **Biblioteca LiquidCrystal** | Padrão Arduino (HD44780) |
-| **Biblioteca DHT sensor library** | Adafruit DHT Sensor Library |
-| **Biblioteca math.h** | Padrão C — usada para `log()` no cálculo Steinhart-Hart |
+### Firmware
 
-### Descrição do firmware
+- Arduino IDE 2.x ou PlatformIO;
+- framework Arduino para ESP32;
+- biblioteca `DHT sensor library`;
+- bibliotecas nativas do ESP32: `WiFi.h`, `HTTPClient.h` e `esp_wifi.h`.
 
-O firmware (`amadurecimento_frutas.ino`) opera em loop contínuo com as seguintes etapas:
+Arquivo principal:
 
-1. **Leitura dos sensores** — DHT11 (temperatura ambiente e umidade), NTC via divisor de tensão (temperatura da fruta), LDR (luminosidade).
-2. **Cálculo da temperatura pelo NTC** — equação de Steinhart-Hart simplificada (modelo β) para converter a resistência medida em temperatura em °C.
-3. **Avaliação do status** — comparação dos valores com limiares pré-definidos; retorna um código de status (`OK`, `ALERTA:CALOR`, `ALERTA:FRIO`, `ALERTA:UMIDO`, `ALERTA:SECO`, `ALERTA:LUZ`).
-4. **Alerta sonoro** — buzzer acionado com `tone()` quando qualquer condição de alerta é detectada.
-5. **Display LCD rotativo** — três telas alternadas a cada 3 segundos: (1) temperatura ambiente + umidade; (2) temperatura da fruta + luminosidade; (3) status geral.
-6. **Registro serial** — todos os valores são enviados via Serial (9600 bps) para log e depuração.
+```text
+amadurecimento_frutas/amadurecimento_frutas.ino
+```
 
-### Limiares de alerta
+O firmware:
 
-| Parâmetro | Limiar mínimo | Limiar máximo | Justificativa |
+1. inicializa o DHT11 e aguarda 2 minutos para aquecimento dos sensores MQ;
+2. conecta o ESP32 ao Wi-Fi;
+3. le temperatura, umidade, luminosidade, MQ-3 e MQ-135;
+4. envia as cinco leituras ao ThingSpeak a cada 15 segundos;
+5. imprime logs no Serial Monitor para depuracao.
+
+### Analise e visualizacao
+
+- Python 3.10+;
+- `requests`;
+- `numpy`;
+- `pandas`;
+- `matplotlib`;
+- `python-dotenv`.
+
+Arquivo principal:
+
+```text
+plot_amadurecimento.py
+```
+
+O script:
+
+1. busca dados pela API do ThingSpeak ou carrega `dados.json` local;
+2. converte timestamps para `America/Sao_Paulo`;
+3. remove leituras nulas e outliers pelo metodo IQR;
+4. plota temperatura, umidade, luminosidade, MQ-3 e MQ-135;
+5. permite filtrar sensores, selecionar intervalo de tempo e exportar PNG.
+
+## Configuracao
+
+### 1. Credenciais do firmware
+
+Copie o arquivo de exemplo:
+
+```text
+amadurecimento_frutas/arduino_secrets.example.h
+```
+
+para:
+
+```text
+amadurecimento_frutas/arduino_secrets.h
+```
+
+e preencha:
+
+```cpp
+#define WIFI_SSID "nome_da_rede"
+#define WIFI_PASSWORD "senha_da_rede"
+#define THINGSPEAK_WRITE_API_KEY "sua_write_api_key"
+```
+
+O arquivo `arduino_secrets.h` fica fora do Git para evitar vazamento de senha e chave de escrita.
+
+### 2. Variaveis do Python
+
+Crie um arquivo `.env` na raiz do projeto:
+
+```env
+THINGSPEAK_CHANNEL_ID=seu_channel_id
+THINGSPEAK_READ_API_KEY=sua_read_api_key
+```
+
+### 3. Dependencias Python
+
+```bash
+pip install -r requirements.txt
+```
+
+## Como Executar
+
+### Firmware
+
+1. Instale a placa ESP32 no Arduino IDE.
+2. Instale a biblioteca `DHT sensor library`.
+3. Crie `amadurecimento_frutas/arduino_secrets.h`.
+4. Abra `amadurecimento_frutas/amadurecimento_frutas.ino`.
+5. Selecione a placa ESP32 e a porta correta.
+6. Faca upload.
+7. Abra o Serial Monitor em 9600 bps.
+
+### Graficos
+
+Ultimos 2 dias:
+
+```bash
+python plot_amadurecimento.py
+```
+
+Intervalo especifico:
+
+```bash
+python plot_amadurecimento.py --start 2026-06-10T00:00:00 --end 2026-06-10T23:59:59
+```
+
+## Customizacoes e Implementacoes do Grupo
+
+Esta secao descreve os esforcos de desenvolvimento realizados para adaptar componentes, bibliotecas e servicos genericos ao prototipo.
+
+### Integracao ESP32 + ThingSpeak
+
+O firmware coleta dados no ESP32 e envia automaticamente ao ThingSpeak por requisicoes HTTP. Em vez de apenas imprimir leituras no Serial Monitor, o codigo monta uma URL com cinco campos, valida a conexao Wi-Fi, envia os dados ao canal remoto e registra o codigo HTTP de resposta.
+
+### Reconexao Wi-Fi durante o experimento
+
+O loop principal verifica se o ESP32 continua conectado. Em caso de queda, o firmware tenta reconectar antes de voltar a coletar e enviar dados. Isso reduz perda de dados em experimentos longos quando o roteador oscila ou quando o ESP32 perde sinal temporariamente.
+
+### Aquecimento inicial dos sensores MQ
+
+O firmware aguarda 2 minutos antes de iniciar as leituras dos sensores MQ-3 e MQ-135. Esse tempo de aquecimento ajuda a estabilizar o elemento sensivel dos sensores MQ e reduz leituras iniciais artificiais.
+
+### Leitura multissensor
+
+O sistema coleta cinco canais em um unico fluxo:
+
+| Campo ThingSpeak | Variavel | Sensor | Tipo de dado |
 |---|---|---|---|
-| Temperatura (ambiente e fruta) | 10 °C | 30 °C | Faixas seguras para armazenamento da maioria das frutas tropicais |
-| Umidade relativa | 50 % | 85 % | Abaixo resseca; acima favorece fungos |
-| Luminosidade (valor ADC bruto) | — | 800 | Exposição excessiva à luz eleva temperatura interna |
+| `field1` | temperatura ambiente | DHT11 | graus Celsius |
+| `field2` | umidade ambiente | DHT11 | %RH |
+| `field3` | luminosidade | LDR | ADC bruto |
+| `field4` | indicador de alcool/VOCs | MQ-3 | ADC bruto |
+| `field5` | indicador de gases/VOCs | MQ-135 | ADC bruto |
 
----
+Essa combinacao integra sensor digital, leituras analogicas e envio IoT. Os sinais MQ foram tratados como indicadores relativos, adequados para comparar tendencias sem afirmar concentracao absoluta em ppm.
 
-## Modelo de Inteligência Computacional
+### Analise Python com API e fallback local
 
-Este projeto não utiliza um modelo de inteligência computacional dedicado (como redes neurais ou aprendizado de máquina). A lógica de decisão é baseada em **regras determinísticas** com limiares fixos derivados da literatura agronômica sobre armazenamento de frutas. Essa abordagem foi escolhida por ser suficiente para o escopo do protótipo e por garantir execução em tempo real no microcontrolador ATmega2560 com recursos limitados.
+O script `plot_amadurecimento.py` busca dados diretamente da API do ThingSpeak. Se a API falhar, ele tenta carregar um arquivo local `dados.json`. Assim, o mesmo codigo atende tanto a coleta online quanto a analise offline.
 
-Como trabalho futuro, um modelo de regressão ou classificação treinado com dados históricos poderia ser embarcado (utilizando TinyML / TensorFlow Lite for Microcontrollers) para prever o estado de amadurecimento com maior precisão.
+### Limpeza de dados por IQR
 
----
+O script remove outliers usando intervalo interquartil (IQR) nas colunas numericas. Essa etapa reduz o impacto de picos espurios comuns em sensores de baixo custo e melhora a leitura das tendencias principais.
 
-## Como compilar e carregar
+### Visualizacao interativa
 
-1. Instale o **Arduino IDE 2.x**.
-2. Instale as bibliotecas via Library Manager:
-   - `DHT sensor library` (Adafruit)
-   - `LiquidCrystal` (já incluída no IDE)
-3. Abra `amadurecimento_frutas.ino`.
-4. Selecione a placa **Arduino Mega 2560** e a porta COM correta.
-5. Clique em **Upload**.
-6. Abra o **Serial Monitor** a 9600 bps para acompanhar os logs.
+O grafico inclui series brutas, media movel centralizada, checkboxes para ligar/desligar sensores, slider de intervalo temporal e exportacao para PNG. Isso permite navegar por janelas especificas, comparar sensores e gerar imagens para relatorio e apresentacao.
 
----
+### Tratamento de eventos de abertura do pote
 
-## Estrutura do repositório
+Os dados mostram quedas abruptas de umidade e sinais MQ quando o recipiente e aberto para fotografar a fruta. O projeto documenta esse comportamento como uma perturbacao experimental causada por troca de ar. Na avaliacao, esses eventos podem ser marcados, sombreados no grafico ou removidos de janelas comparativas para preservar a interpretacao do amadurecimento em pote fechado.
 
-```
+### Separacao de credenciais
+
+As credenciais de Wi-Fi e chave de escrita do ThingSpeak ficam em `arduino_secrets.h`, enquanto as credenciais de leitura do Python ficam no `.env`. Isso torna o repositorio mais adequado para entrega e compartilhamento, evitando expor senhas ou chaves de API no codigo versionado.
+
+## Avaliacao Experimental
+
+Durante os testes, o pote fechado apresentou acumulacao de umidade e aumento nos sinais MQ, comportamento esperado em um microambiente com fruta. Quando o pote foi aberto para fotografias, houve queda brusca em umidade e nos sinais MQ por causa da troca de ar com o ambiente externo.
+
+Esse comportamento nao invalida o projeto: ele deve ser tratado como uma perturbacao experimental. Na analise, os momentos de abertura do pote devem ser marcados ou desconsiderados por alguns minutos, para que a comparacao principal use trechos em que o recipiente permaneceu fechado.
+
+Exemplo observado em 10/06/2026, por volta de 15:23 no horario de Sao Paulo:
+
+| Variavel | Antes da abertura | Depois da abertura | Variacao |
+|---|---:|---:|---:|
+| Temperatura | 26,21 C | 25,93 C | -1,1% |
+| Umidade | 77,10% | 66,60% | -13,6% |
+| Luminosidade | 129,40 ADC | 89,40 ADC | -30,9% |
+| MQ-3 | 1720,60 ADC | 1349,80 ADC | -21,6% |
+| MQ-135 | 1339,20 ADC | 979,30 ADC | -26,9% |
+
+## Estrutura do Repositorio
+
+```text
 .
-├── amadurecimento_frutas.ino   # Firmware principal
-├── README.md                   # Documentação do hardware e software
-├── CUSTOMIZATIONS.md           # Customizações e esforços de desenvolvimento
-└── artigo_SBrT.tex             # Artigo científico no modelo SBrT (PDF enviado ao professor)
+├── amadurecimento_frutas/
+│   ├── amadurecimento_frutas.ino
+│   └── arduino_secrets.example.h
+├── artigo_SBrT.tex
+├── .env.example
+├── plot_amadurecimento.py
+├── README.md
+├── requirements.txt
+└── .gitignore
 ```
-
----
-
-## Licença
-
-Projeto acadêmico — uso livre para fins educacionais.
